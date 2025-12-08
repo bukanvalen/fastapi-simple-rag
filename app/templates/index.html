@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem RAG yang Dipersonalisasi</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Sistem RAG yang Dipersonalisasi</h1>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                Add New User
+            </div>
+            <div class="card-body">
+                <form action="/add-user" method="post">
+                    <div class="mb-3">
+                        <label for="user_nama" class="form-label">Nama</label>
+                        <input type="text" class="form-control" id="user_nama" name="nama" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="user_email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="user_email" name="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="user_telepon" class="form-label">Telepon (Optional)</label>
+                        <input type="text" class="form-control" id="user_telepon" name="telepon">
+                    </div>
+                    <div class="mb-3">
+                        <label for="user_bio" class="form-label">Bio (Optional)</label>
+                        <textarea class="form-control" id="user_bio" name="bio" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="user_lokasi" class="form-label">Lokasi (Optional)</label>
+                        <input type="text" class="form-control" id="user_lokasi" name="lokasi">
+                    </div>
+                    <button type="submit" class="btn btn-info">Add User</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                Add New User
+            </div>
+            <div class="card-body">
+                <form action="/add-user" method="post">
+                    <div class="mb-3">
+                        <label for="user_nama" class="form-label">Nama</label>
+                        <input type="text" class="form-control" id="user_nama" name="nama" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="user_email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="user_email" name="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="user_telepon" class="form-label">Telepon (Optional)</label>
+                        <input type="text" class="form-control" id="user_telepon" name="telepon">
+                    </div>
+                    <div class="mb-3">
+                        <label for="user_bio" class="form-label">Bio (Optional)</label>
+                        <textarea class="form-control" id="user_bio" name="bio" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="user_lokasi" class="form-label">Lokasi (Optional)</label>
+                        <input type="text" class="form-control" id="user_lokasi" name="lokasi">
+                    </div>
+                    <button type="submit" class="btn btn-info">Add User</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                Add New Todo
+            </div>
+            <div class="card-body">
+                <form action="/add-todo" method="post">
+                    <div class="mb-3">
+                        <label for="todo_id_user" class="form-label">User ID</label>
+                        <input type="number" class="form-control" id="todo_id_user" name="id_user" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="todo_nama" class="form-label">Nama</label>
+                        <input type="text" class="form-control" id="todo_nama" name="nama" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="todo_tipe" class="form-label">Tipe</label>
+                        <input type="text" class="form-control" id="todo_tipe" name="tipe" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="todo_tenggat" class="form-label">Tenggat (Optional)</label>
+                        <input type="datetime-local" class="form-control" id="todo_tenggat" name="tenggat">
+                    </div>
+                    <div class="mb-3">
+                        <label for="todo_deskripsi" class="form-label">Deskripsi (Optional)</label>
+                        <textarea class="form-control" id="todo_deskripsi" name="deskripsi" rows="3"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Todo</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                Add New Jadwal Matkul
+            </div>
+            <div class="card-body">
+                <form action="/add-jadwal" method="post">
+                    <div class="mb-3">
+                        <label for="jadwal_id_user" class="form-label">User ID</label>
+                        <input type="number" class="form-control" id="jadwal_id_user" name="id_user" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="jadwal_hari" class="form-label">Hari</label>
+                        <input type="text" class="form-control" id="jadwal_hari" name="hari" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="jadwal_nama" class="form-label">Nama Mata Kuliah</label>
+                        <input type="text" class="form-control" id="jadwal_nama" name="nama" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="jadwal_jam_mulai" class="form-label">Jam Mulai</label>
+                        <input type="time" class="form-control" id="jadwal_jam_mulai" name="jam_mulai" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="jadwal_jam_selesai" class="form-label">Jam Selesai</label>
+                        <input type="time" class="form-control" id="jadwal_jam_selesai" name="jam_selesai" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="jadwal_sks" class="form-label">SKS</label>
+                        <input type="number" class="form-control" id="jadwal_sks" name="sks" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Jadwal</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                Add New UKM
+            </div>
+            <div class="card-body">
+                <form action="/add-ukm" method="post">
+                    <div class="mb-3">
+                        <label for="ukm_id_user" class="form-label">User ID</label>
+                        <input type="number" class="form-control" id="ukm_id_user" name="id_user" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="ukm_nama" class="form-label">Nama UKM</label>
+                        <input type="text" class="form-control" id="ukm_nama" name="nama" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="ukm_jabatan" class="form-label">Jabatan</label>
+                        <input type="text" class="form-control" id="ukm_jabatan" name="jabatan" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="ukm_deskripsi" class="form-label">Deskripsi (Optional)</label>
+                        <textarea class="form-control" id="ukm_deskripsi" name="deskripsi" rows="3"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add UKM</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                Ask a Question (RAG Query)
+            </div>
+            <div class="card-body">
+                <form id="ragQueryForm">
+                    <div class="mb-3">
+                        <label for="question" class="form-label">Your Question</label>
+                        <input type="text" class="form-control" id="question" name="question" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="query_id_user" class="form-label">User ID (Optional)</label>
+                        <input type="number" class="form-control" id="query_id_user" name="id_user">
+                    </div>
+                    <div class="mb-3">
+                        <label for="top_k" class="form-label">Top K (Context documents)</label>
+                        <input type="number" class="form-control" id="top_k" name="top_k" value="5">
+                    </div>
+                    <button type="submit" class="btn btn-success">Get Answer</button>
+                </form>
+                <div id="ragResponse" class="mt-3">
+                    <!-- RAG Query Response will be displayed here -->
+                </div>
+            </div>
+        </div>
+
+        <h2 class="mb-3">Existing Todos</h2>
+        {% if todos %}
+        <table class="table table-striped table-bordered">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>User ID</th>
+                    <th>Nama</th>
+                    <th>Tipe</th>
+                    <th>Tenggat</th>
+                    <th>Deskripsi</th>
+                    <th>Created At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for todo in todos %}
+                <tr>
+                    <td>{{ todo.id_todo }}</td>
+                    <td>{{ todo.id_user }}</td>
+                    <td>{{ todo.nama }}</td>
+                    <td>{{ todo.tipe }}</td>
+                    <td>{{ todo.tenggat if todo.tenggat is not none else 'N/A' }}</td>
+                    <td>{{ todo.deskripsi if todo.deskripsi is not none else 'N/A' }}</td>
+                    <td>{{ todo.created_at }}</td>
+                    <td>
+                        <form action="/delete-todo/{{ todo.id_todo }}" method="post" style="display:inline;">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete Todo</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No todos found.</p>
+        {% endif %}
+
+        <h2 class="mb-3">Existing Jadwal Matkul</h2>
+        {% if jadwal_matkul %}
+        <table class="table table-striped table-bordered">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>User ID</th>
+                    <th>Hari</th>
+                    <th>Nama</th>
+                    <th>Jam Mulai</th>
+                    <th>Jam Selesai</th>
+                    <th>SKS</th>
+                    <th>Created At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for jadwal in jadwal_matkul %}
+                <tr>
+                    <td>{{ jadwal.id_jadwal }}</td>
+                    <td>{{ jadwal.id_user }}</td>
+                    <td>{{ jadwal.hari }}</td>
+                    <td>{{ jadwal.nama }}</td>
+                    <td>{{ jadwal.jam_mulai }}</td>
+                    <td>{{ jadwal.jam_selesai }}</td>
+                    <td>{{ jadwal.sks }}</td>
+                    <td>{{ jadwal.created_at }}</td>
+                    <td>
+                        <form action="/delete-jadwal/{{ jadwal.id_jadwal }}" method="post" style="display:inline;">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete Jadwal</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No jadwal matkul found.</p>
+        {% endif %}
+
+        <h2 class="mb-3">Existing UKM</h2>
+        {% if ukm %}
+        <table class="table table-striped table-bordered">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>User ID</th>
+                    <th>Nama</th>
+                    <th>Jabatan</th>
+                    <th>Deskripsi</th>
+                    <th>Created At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ukm_entry in ukm %}
+                <tr>
+                    <td>{{ ukm_entry.id_ukm }}</td>
+                    <td>{{ ukm_entry.id_user }}</td>
+                    <td>{{ ukm_entry.nama }}</td>
+                    <td>{{ ukm_entry.jabatan }}</td>
+                    <td>{{ ukm_entry.deskripsi if ukm_entry.deskripsi is not none else 'N/A' }}</td>
+                    <td>{{ ukm_entry.created_at }}</td>
+                    <td>
+                        <form action="/delete-ukm/{{ ukm_entry.id_ukm }}" method="post" style="display:inline;">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete UKM</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No UKM entries found.</p>
+        {% endif %}
+
+        <h2 class="mb-3">Existing Users</h2>
+        {% if users %}
+        <table class="table table-striped table-bordered">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nama</th>
+                    <th>Email</th>
+                    <th>Telepon</th>
+                    <th>Bio</th>
+                    <th>Lokasi</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>{{ user.id_user }}</td>
+                    <td>{{ user.nama }}</td>
+                    <td>{{ user.email }}</td>
+                    <td>{{ user.telepon if user.telepon is not none else 'N/A' }}</td>
+                    <td>{{ user.bio if user.bio is not none else 'N/A' }}</td>
+                    <td>{{ user.lokasi if user.lokasi is not none else 'N/A' }}</td>
+                    <td>
+                        <form action="/delete-user/{{ user.id_user }}" method="post" style="display:inline;">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete User</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No users found. Add some users above!</p>
+        {% endif %}
+
+        <h2 class="mb-3">Existing Embeddings</h2>
+        {% if rags_embeddings %}
+        <table class="table table-striped table-bordered">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>User ID</th>
+                    <th>Source Type</th>
+                    <th>Original Text</th>
+                    <th>Created At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for embedding in rags_embeddings %}
+                <tr>
+                    <td>{{ embedding.id_embedding }}</td>
+                    <td>{{ embedding.id_user if embedding.id_user is not none else 'N/A' }}</td>
+                    <td>{{ embedding.source_type }}</td>
+                    <td>{{ embedding.text_original }}</td>
+                    <td>{{ embedding.created_at }}</td>
+                    <td>
+                        <form action="/delete-activity/{{ embedding.id_embedding }}" method="post" style="display:inline;">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No embeddings found. Add some activities above!</p>
+        {% endif %}
+    </div>
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+    <script>
+        document.getElementById('ragQueryForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            const data = {
+                question: formData.get('question'),
+                top_k: parseInt(formData.get('top_k')),
+            };
+            const idUser = formData.get('id_user');
+            if (idUser) {
+                data.id_user = parseInt(idUser);
+            }
+
+            const responseDiv = document.getElementById('ragResponse');
+            responseDiv.innerHTML = '<div class="alert alert-info">Loading...</div>';
+
+            try {
+                const response = await fetch('/rag/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Something went wrong with the RAG query.');
+                }
+
+                const result = await response.json();
+                let contextHtml = result.context_docs.map(doc => `
+                    <p><strong>Source Type:</strong> ${doc.source_type}</p>
+                    <p><strong>Original Text:</strong> ${doc.text_original}</p>
+                    <hr>
+                `).join('');
+
+                responseDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <strong>Answer:</strong> ${result.answer}
+                    </div>
+                    <div class="mt-3">
+                        <h5>Context Documents:</h5>
+                        ${contextHtml}
+                    </div>
+                `;
+            } catch (error) {
+                responseDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+        });
+    </script>
+</body>
+</html>
