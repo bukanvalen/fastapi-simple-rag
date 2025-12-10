@@ -130,11 +130,51 @@ def delete_todo(db: Session, todo_id: int):
         db.commit()
     return db_todo
 
+# --- SEMESTER CRUD ---
+def create_semester(db: Session, semester: schemas.SemesterCreate) -> models.Semester:
+    db_semester = models.Semester(
+        id_user=semester.id_user,
+        tipe=semester.tipe,
+        tahun_ajaran=semester.tahun_ajaran,
+        tanggal_mulai=semester.tanggal_mulai,
+        tanggal_selesai=semester.tanggal_selesai
+    )
+    db.add(db_semester)
+    db.commit()
+    db.refresh(db_semester)
+    return db_semester
+
+def get_semesters_by_user(db: Session, id_user: int, skip: int = 0, limit: int = 100) -> List[models.Semester]:
+    return db.query(models.Semester).filter(models.Semester.id_user == id_user).offset(skip).limit(limit).all()
+
+def get_semester(db: Session, semester_id: int) -> Optional[models.Semester]:
+    return db.query(models.Semester).filter(models.Semester.id_semester == semester_id).first()
+
+def delete_semester(db: Session, semester_id: int):
+    db_semester = db.query(models.Semester).filter(models.Semester.id_semester == semester_id).first()
+    if db_semester:
+        db.delete(db_semester)
+        db.commit()
+    return db_semester
+
+def update_semester(db: Session, semester_id: int, semester_update: schemas.SemesterUpdate) -> Optional[models.Semester]:
+    db_semester = db.query(models.Semester).filter(models.Semester.id_semester == semester_id).first()
+    if db_semester:
+        update_data = semester_update.model_dump(exclude_unset=True, exclude_none=True)
+        if update_data:
+            for key, value in update_data.items():
+                setattr(db_semester, key, value)
+        db.commit()
+        db.refresh(db_semester)
+    return db_semester
+
+
 # --- JADWAL MATKUL CRUD ---
 def create_jadwal_matkul(db: Session, jadwal: schemas.JadwalMatkulCreate) -> models.JadwalMatkul:
     db_jadwal = models.JadwalMatkul(
         id_user=jadwal.id_user,
-        hari=jadwal.hari,
+        id_semester=jadwal.id_semester,
+        hari=models.HariEnum(jadwal.hari), # Ensure Enum conversion
         nama=jadwal.nama,
         jam_mulai=jadwal.jam_mulai,
         jam_selesai=jadwal.jam_selesai,
@@ -163,6 +203,7 @@ def get_all_jadwal_matkul(db: Session, skip: int = 0, limit: int = 100) -> List[
     return db.query(models.JadwalMatkul).offset(skip).limit(limit).all()
 
 def get_jadwal_matkul_by_user(db: Session, id_user: int, skip: int = 0, limit: int = 100) -> List[models.JadwalMatkul]:
+    # Eager load semester details for display if needed
     return db.query(models.JadwalMatkul).filter(models.JadwalMatkul.id_user == id_user).offset(skip).limit(limit).all()
 
 def delete_jadwal_matkul(db: Session, jadwal_id: int):
@@ -171,6 +212,9 @@ def delete_jadwal_matkul(db: Session, jadwal_id: int):
         db.delete(db_jadwal)
         db.commit()
     return db_jadwal
+
+def get_jadwal_matkul_by_semester(db: Session, id_semester: int, skip: int = 0, limit: int = 100) -> List[models.JadwalMatkul]:
+    return db.query(models.JadwalMatkul).filter(models.JadwalMatkul.id_semester == id_semester).offset(skip).limit(limit).all()
 
 # --- UKM CRUD ---
 def create_ukm(db: Session, ukm: schemas.UKMCreate) -> models.UKM:

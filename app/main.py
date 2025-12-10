@@ -7,11 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
-from datetime import datetime, time
+from datetime import datetime, time, date
 import logging
 import traceback
 
-from . import models, schemas, crud, db, rag
+from . import models, schemas, crud, db, rag, auth, calendar_service, api
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import Request
+from starlette.responses import RedirectResponse
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,6 +37,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(SessionMiddleware, secret_key=auth.SECRET_KEY)
+
+app.include_router(api.router)
+
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -50,18 +59,149 @@ async def read_root(request: Request, db_session: Session = Depends(get_db)):
     users = crud.get_users(db_session)
     todos = crud.get_all_todos(db_session)
     jadwal_matkul = crud.get_all_jadwal_matkul(db_session)
+    jadwal_matkul = crud.get_all_jadwal_matkul(db_session)
     ukm = crud.get_all_ukm(db_session)
+    
+    current_user = await auth.get_current_user(request, db_session)
+    semesters = []
+    if current_user:
+        semesters = crud.get_semesters_by_user(db_session, current_user.id_user)
+    
     return templates.TemplateResponse(
         request,
         "index.html",
         {
+            "request": request,
             "rags_embeddings": rags_embeddings,
             "users": users,
             "todos": todos,
             "jadwal_matkul": jadwal_matkul,
-            "ukm": ukm
+            "jadwal_matkul": jadwal_matkul,
+            "ukm": ukm,
+            "current_user": current_user,
+            "semesters": semesters
         }
     )
+
+# --- AUTH ROUTES ---
+
+@app.get("/login")
+async def login(request: Request):
+    redirect_uri = request.url_for('auth_callback')
+    return await auth.oauth.google.authorize_redirect(request, redirect_uri)
+
+@app.get("/auth", name="auth_callback")
+async def auth_callback(request: Request, db_session: Session = Depends(get_db)):
+    try:
+        token = await auth.oauth.google.authorize_access_token(request)
+    except Exception as e:
+        # Handle cases where user cancels or error occurs
+        return RedirectResponse(url="/")
+        
+    user_info = token.get('userinfo')
+    if not user_info:
+        # Fallback if userinfo not in token (depends on scope/provider)
+        user_info = await auth.oauth.google.userinfo(token=token)
+
+    # user_info contains 'sub' (google_id), 'name', 'email', 'picture'
+    email = user_info.get('email')
+    nama = user_info.get('name')
+    picture = user_info.get('picture')
+    google_id = user_info.get('sub')
+    
+    # Check if user exists
+    db_user = crud.get_user_by_email(db_session, email)
+    
+    if not db_user:
+        # Create new user
+        # We need to handle the case where we don't have all fields required by UserCreate yet
+        # Ensure crud.create_user can handle this or do it manually here
+        new_user = models.User(
+            nama=nama,
+            email=email,
+            # Others optional
+            google_id=google_id,
+            picture=picture,
+            access_token=token.get('access_token'),
+            refresh_token=token.get('refresh_token')
+        )
+        db_session.add(new_user)
+        db_session.commit()
+        db_session.refresh(new_user)
+        
+        # Create embedding for new user automatically
+        try:
+             await crud.create_user_embedding(db_session, new_user)
+        except Exception as e:
+            logger.error(f"Failed to create embedding for new Google user: {e}")
+
+        request.session['user_id'] = new_user.id_user
+        # Redirect to React Frontend Onboarding or Profile
+        return RedirectResponse(url="http://localhost:5173/")
+    else:
+        if not db_user.google_id:
+             db_user.google_id = google_id
+             db_user.picture = picture
+        db_user.access_token = token.get('access_token')
+        if token.get('refresh_token'):
+            db_user.refresh_token = token.get('refresh_token')
+        
+        db_session.commit()
+        request.session['user_id'] = db_user.id_user
+        # Redirect to React Frontend
+        return RedirectResponse(url="http://localhost:5173/")
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.pop('user_id', None)
+    return RedirectResponse(url="http://localhost:5173/")
+
+@app.get("/onboarding", response_class=HTMLResponse)
+async def onboarding_page(request: Request, db_session: Session = Depends(get_db)):
+    user = await auth.get_current_user(request, db_session)
+    if not user:
+        return RedirectResponse(url="/")
+    return templates.TemplateResponse(request, "onboarding.html", {"user": user})
+
+@app.post("/onboarding", response_class=RedirectResponse)
+async def onboarding_submit(
+    request: Request,
+    telepon: Optional[str] = Form(None),
+    bio: Optional[str] = Form(None),
+    lokasi: Optional[str] = Form(None),
+    db_session: Session = Depends(get_db)
+):
+    user = await auth.get_current_user(request, db_session)
+    if not user:
+        return RedirectResponse(url="/")
+    
+    user_update = schemas.UserUpdate(
+        telepon=telepon,
+        bio=bio,
+        lokasi=lokasi
+    )
+    crud.update_user(db_session, user.id_user, user_update)
+    
+    # Regnerate embedding
+    # ... logic similar to update_user ...
+    # We can reuse the update_user_route logic or extract it.
+    # For now, let's just do it here quickly:
+    
+    user_data_text = f"Nama: {user.nama}. Email: {user.email}. Telepon: {user.telepon or ''}. Bio: {user.bio or ''}. Lokasi: {user.lokasi or ''}."
+    embedding_list = await rag.embed_text_with_gemini(user_data_text)
+    
+    existing_embedding = db_session.query(models.RAGSEmbedding).filter_by(
+        source_type="user", source_id=str(user.id_user)
+    ).first()
+
+    if existing_embedding:
+        existing_embedding.text_original = user_data_text
+        existing_embedding.embedding = embedding_list
+        db_session.add(existing_embedding)
+        db_session.commit()
+    
+    return RedirectResponse(url="/", status_code=303)
+
 
 
 # POST /add-user
@@ -99,21 +239,34 @@ async def update_user_route(
     telepon: Optional[str] = Form(None),
     bio: Optional[str] = Form(None),
     lokasi: Optional[str] = Form(None),
+    calendar_name: Optional[str] = Form(None),
     db_session: Session = Depends(get_db)
 ):
     try:
+        # Check if name changed for sync trigger
         user_update_data = schemas.UserUpdate(
             nama=nama,
             email=email,
             telepon=telepon,
             bio=bio,
-            lokasi=lokasi
+            lokasi=lokasi,
+            calendar_name=calendar_name
         )
+        
+        # We need to know if calendar_name changed to trigger resync
+        current_db_user = crud.get_user(db_session, user_id)
+        old_cal_name = current_db_user.calendar_name
+        
         db_user = crud.update_user(db_session, user_id, user_update_data)
+        
+        # Trigger full resync if calendar name changed
+        if db_user and db_user.calendar_name != old_cal_name:
+             # This will rename all semester calendars
+             calendar_service.resync_all_user_calendars(db_session, db_user)
 
         if db_user:
             # Re-generate and update user embedding if user data was changed
-            user_data_text = f"Nama: {db_user.nama}. Email: {db_user.email}. Telepon: {db_user.telepon or ''}. Bio: {db_user.bio or ''}. Lokasi: {db_user.lokasi or ''}."
+            user_data_text = f"Nama: {db_user.nama}. Email: {db_user.email}. Telepon: {db_user.telepon or ''}. Bio: {db_user.bio or ''}. Lokasi: {db_user.lokasi or ''}. Calendar Name: {db_user.calendar_name or ''}."
             embedding_list = await rag.embed_text_with_gemini(user_data_text)
             
             # Find and update the existing user embedding
@@ -254,6 +407,7 @@ async def get_user_chat_history(user_id: int, db_session: Session = Depends(get_
 # --- TODO Endpoints ---
 @app.post("/add-todo", response_class=RedirectResponse)
 async def add_todo(
+    request: Request,
     id_user: int = Form(...),
     nama: str = Form(...),
     tipe: str = Form(...),
@@ -271,6 +425,15 @@ async def add_todo(
             deskripsi=deskripsi
         )
         db_todo = crud.create_todo(db_session, todo_create)
+        
+        # Calendar Sync (Phase 2)
+        db_user = crud.get_user(db_session, id_user)
+        if db_user and db_user.access_token and tenggat_dt:
+             # Use the new service that handles dedicated calendar
+             event_id = calendar_service.create_todo_event(db_session, db_user, db_todo)
+             if event_id:
+                 db_todo.google_event_id = event_id
+                 db_session.commit()
         
         todo_text = f"Todo: {db_todo.nama}. Type: {db_todo.tipe}. Due: {db_todo.tenggat}. Description: {db_todo.deskripsi or ''}."
         embedding_list = await rag.embed_text_with_gemini(todo_text)
@@ -290,6 +453,21 @@ async def add_todo(
 
 @app.post("/delete-todo/{todo_id}", response_class=RedirectResponse)
 async def delete_todo_route(todo_id: int, db_session: Session = Depends(get_db)):
+    # Check for calendar event to delete
+    db_todo = crud.get_todo(db_session, todo_id)
+    if db_todo and db_todo.google_event_id:
+         db_user = crud.get_user(db_session, db_todo.id_user)
+         if db_user:
+             # Phase 2: Delete from custom calendar if exists, or primary default logic handled in service
+             # Check if we have calendar id stored or just try delete
+             # For Todo, we typically used primary before, but now custom.
+             # Service handles fetching the right calendar ID context if we update 'delete_event' 
+             # But 'delete_event' in service takes specific calendar_id.
+             
+             # Let's get the ID to delete from.
+             cal_id = db_user.todo_calendar_id if db_user.todo_calendar_id else 'primary'
+             calendar_service.delete_event(db_session, db_user, db_todo.google_event_id, calendar_id=cal_id)
+
     crud.delete_todo(db_session, todo_id)
     crud.delete_rags_embedding_by_source_type_and_id(db_session, "todo", str(todo_id))
     return RedirectResponse(url="/", status_code=303)
@@ -347,6 +525,7 @@ async def update_todo_route(
 @app.post("/add-jadwal", response_class=RedirectResponse)
 async def add_jadwal(
     id_user: int = Form(...),
+    id_semester: Optional[int] = Form(None),
     hari: str = Form(...),
     nama: str = Form(...),
     jam_mulai: str = Form(...), # Receive as string, parse later
@@ -357,8 +536,10 @@ async def add_jadwal(
     try:
         jam_mulai_time = time.fromisoformat(jam_mulai)
         jam_selesai_time = time.fromisoformat(jam_selesai)
+        
         jadwal_create = schemas.JadwalMatkulCreate(
             id_user=id_user,
+            id_semester=id_semester,
             hari=hari,
             nama=nama,
             jam_mulai=jam_mulai_time,
@@ -366,6 +547,16 @@ async def add_jadwal(
             sks=sks
         )
         db_jadwal = crud.create_jadwal_matkul(db_session, jadwal_create)
+        
+        # Calendar Sync (Phase 2: Recurring)
+        if id_semester:
+             db_semester = crud.get_semester(db_session, id_semester)
+             db_user = crud.get_user(db_session, id_user)
+             if db_semester and db_user and db_user.access_token:
+                 event_id = calendar_service.create_recurring_class_event(db_session, db_user, db_semester, db_jadwal)
+                 if event_id:
+                     db_jadwal.google_event_id = event_id
+                     db_session.commit()
         
         jadwal_text = f"Jadwal Mata Kuliah: {db_jadwal.nama}. Hari: {db_jadwal.hari}. Mulai: {db_jadwal.jam_mulai}. Selesai: {db_jadwal.jam_selesai}. SKS: {db_jadwal.sks}."
         embedding_list = await rag.embed_text_with_gemini(jadwal_text)
@@ -385,6 +576,14 @@ async def add_jadwal(
 
 @app.post("/delete-jadwal/{jadwal_id}", response_class=RedirectResponse)
 async def delete_jadwal_route(jadwal_id: int, db_session: Session = Depends(get_db)):
+    db_jadwal = crud.get_jadwal_matkul(db_session, jadwal_id)
+    if db_jadwal and db_jadwal.google_event_id and db_jadwal.id_semester:
+        # Need semester to know calendar ID
+        db_semester = crud.get_semester(db_session, db_jadwal.id_semester)
+        db_user = crud.get_user(db_session, db_jadwal.id_user)
+        if db_semester and db_semester.google_calendar_id and db_user:
+            calendar_service.delete_event(db_session, db_user, db_jadwal.google_event_id, calendar_id=db_semester.google_calendar_id)
+
     crud.delete_jadwal_matkul(db_session, jadwal_id)
     crud.delete_rags_embedding_by_source_type_and_id(db_session, "jadwal", str(jadwal_id))
     return RedirectResponse(url="/", status_code=303)
@@ -393,6 +592,7 @@ async def delete_jadwal_route(jadwal_id: int, db_session: Session = Depends(get_
 async def update_jadwal_route(
     jadwal_id: int,
     id_user: Optional[int] = Form(None),
+    id_semester: Optional[int] = Form(None),
     hari: Optional[str] = Form(None),
     nama: Optional[str] = Form(None),
     jam_mulai: Optional[str] = Form(None), # Receive as string, parse later
@@ -405,6 +605,7 @@ async def update_jadwal_route(
         jam_selesai_time = time.fromisoformat(jam_selesai) if jam_selesai else None
         jadwal_update_data = schemas.JadwalMatkulUpdate(
             id_user=id_user,
+            id_semester=id_semester,
             hari=hari,
             nama=nama,
             jam_mulai=jam_mulai_time,
@@ -426,7 +627,6 @@ async def update_jadwal_route(
                 existing_embedding.text_original = jadwal_text
                 existing_embedding.embedding = embedding_list
                 db_session.add(existing_embedding)
-                db_session.commit()
             else:
                 crud.create_rags_embedding(db_session, schemas.RAGSEmbeddingCreate(
                     id_user=db_jadwal.id_user,
@@ -434,6 +634,23 @@ async def update_jadwal_route(
                     source_id=str(db_jadwal.id_jadwal),
                     text_original=jadwal_text
                 ), embedding_list)
+            
+            # Calendar Sync Update (Phase 2.5)
+            if db_jadwal.id_semester and db_jadwal.google_event_id:
+                 db_semester = crud.get_semester(db_session, db_jadwal.id_semester)
+                 db_user = crud.get_user(db_session, db_jadwal.id_user)
+                 if db_semester and db_user:
+                     calendar_service.update_recurring_event(db_session, db_user, db_semester, db_jadwal)
+                     
+             
+            # Calendar Sync Update (Phase 2.5)
+            if db_jadwal.id_semester and db_jadwal.google_event_id:
+                 db_semester = crud.get_semester(db_session, db_jadwal.id_semester)
+                 db_user = crud.get_user(db_session, db_jadwal.id_user)
+                 if db_semester and db_user:
+                     calendar_service.update_recurring_event(db_session, db_user, db_semester, db_jadwal)
+                     
+            db_session.commit() # Commit all changes including embedding and potential calendar sync side effects
 
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
@@ -441,7 +658,6 @@ async def update_jadwal_route(
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- UKM Endpoints ---
 @app.post("/add-ukm", response_class=RedirectResponse)
 async def add_ukm(
     id_user: int = Form(...),
@@ -561,42 +777,94 @@ async def rag_query(query: schemas.RAGQuery, db_session: Session = Depends(get_d
         raise HTTPException(status_code=500, detail=str(e))
 
 # Optional: POST /calendar/create-event (Section 13)
-@app.post("/calendar/create-event")
-async def create_calendar_event(event: schemas.CalendarEventCreate):
-    """
-    Handles the creation of a Google Calendar event.
+@app.post("/calendar/sync", response_class=RedirectResponse)
+async def manual_calendar_sync(request: Request, db_session: Session = Depends(get_db)):
+    user = await auth.get_current_user(request, db_session)
+    if user:
+        calendar_service.sync_todos_to_calendar(db_session, user)
+    return RedirectResponse(url="/", status_code=303)
 
-    TODO:
-    1. Authenticate with Google Calendar API.
-       - This typically involves setting up OAuth 2.0 credentials in the Google Cloud Console.
-       - You might need to store refresh tokens securely and use them to obtain access tokens.
-       - Libraries like `google-auth-oauthlib` and `google-api-python-client` can assist.
-    2. Construct the event body using the 'event' data.
-       - Ensure `start_time` and `end_time` are in the correct format (e.g., RFC3339).
-    3. Call the Google Calendar API to insert the event.
-    4. Handle potential API errors (e.g., authentication failure, invalid event data).
-    5. Return an appropriate response, including the event ID if successful.
-    """
-    # Placeholder for future implementation
-    # Example using google-api-python-client (requires installation and setup):
-    # from google.oauth2.credentials import Credentials
-    # from googleapiclient.discovery import build
 
-    # creds = ... # Load or refresh credentials
-    # service = build('calendar', 'v3', credentials=creds)
+# --- SEMESTER Endpoints (Phase 2) ---
+@app.post("/add-semester", response_class=RedirectResponse)
+async def add_semester(
+    request: Request,
+    tipe: str = Form(...),
+    tahun_ajaran: str = Form(...),
+    tanggal_mulai: str = Form(...),
+    tanggal_selesai: str = Form(...),
+    db_session: Session = Depends(get_db)
+):
+    user = await auth.get_current_user(request, db_session)
+    if not user:
+         return RedirectResponse(url="/")
+         
+    try:
+        semester_create = schemas.SemesterCreate(
+            id_user=user.id_user,
+            tipe=tipe,
+            tahun_ajaran=tahun_ajaran,
+            tanggal_mulai=date.fromisoformat(tanggal_mulai),
+            tanggal_selesai=date.fromisoformat(tanggal_selesai)
+        )
+        new_sem = crud.create_semester(db_session, semester_create)
+        
+        # Auto-create calendar immediately
+        calendar_service.create_semester_calendar(db_session, user, new_sem)
+        
+    except Exception as e:
+        logger.error(f"Error creating semester: {e}")
+        logger.error(traceback.format_exc())
+        
+    return RedirectResponse(url="/", status_code=303)
 
-    # event_body = {
-    #     'summary': event.summary,
-    #     'description': event.description,
-    #     'start': {'dateTime': event.start_time.isoformat(), 'timeZone': 'UTC'}, # Adjust timezone as needed
-    #     'end': {'dateTime': event.end_time.isoformat(), 'timeZone': 'UTC'},     # Adjust timezone as needed
-    # }
 
-    # try:
-    #     created_event = service.events().insert(calendarId='primary', body=event_body).execute()
-    #     return {"message": "Calendar event created successfully", "event_id": created_event.get('id')}
-    # except Exception as e:
-    #     raise HTTPException(status_code=500, detail=f"Failed to create calendar event: {e}")
-    
-    return {"message": "Calendar event creation not yet implemented. Please refer to the code for integration instructions."}
+@app.post("/delete-semester/{semester_id}", response_class=RedirectResponse)
+async def delete_semester(semester_id: int, request: Request, db_session: Session = Depends(get_db)):
+    user = await auth.get_current_user(request, db_session)
+    if not user:
+         return RedirectResponse(url="/")
+         
+    db_semester = crud.get_semester(db_session, semester_id)
+    if db_semester:
+        # 1. Delete Google Calendar if exists
+        if db_semester.google_calendar_id:
+            try:
+                calendar_service.delete_calendar(user, db_semester.google_calendar_id)
+            except Exception as e:
+                logger.error(f"Failed to delete Google Calendar: {e}")
+        
+        # 2. Delete embeddings for all schedules in this semester
+        for jadwal in db_semester.jadwal_matkul:
+             crud.delete_rags_embedding_by_source_type_and_id(db_session, "jadwal", str(jadwal.id_jadwal))
+             
+        crud.delete_semester(db_session, semester_id)
+
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/update-semester/{semester_id}", response_class=RedirectResponse)
+async def update_semester(
+    semester_id: int, 
+    request: Request, 
+    tipe: str = Form(...),
+    tahun_ajaran: str = Form(...),
+    db_session: Session = Depends(get_db)
+):
+    user = await auth.get_current_user(request, db_session)
+    if not user:
+         return RedirectResponse(url="/")
+         
+    db_semester = crud.get_semester(db_session, semester_id)
+    if db_semester:
+        db_semester.tipe = tipe
+        db_semester.tahun_ajaran = tahun_ajaran
+        db_session.commit()
+        
+        # Sync Calendar Name
+        if db_semester.google_calendar_id:
+            new_summary = f"My Campus - {tipe} {tahun_ajaran}"
+            calendar_service.update_calendar_metadata(user, db_semester.google_calendar_id, new_summary)
+            
+    return RedirectResponse(url="/", status_code=303)
 

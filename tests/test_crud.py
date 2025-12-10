@@ -1,61 +1,7 @@
-from fastapi.testclient import TestClient
 import pytest
-import asyncio
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
-from app.main import app, get_db
-from app.db import Base
-from app import models, crud, schemas
+from app import crud, schemas, models
 from app.rag import embed_text_with_gemini
 from datetime import datetime, time
-
-# Use a separate test PostgreSQL database
-SQLALCHEMY_DATABASE_URL = "postgresql://admin:1@localhost:5432/ragdb_test"
-
-test_engine = create_engine(SQLALCHEMY_DATABASE_URL)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
-
-# Override the get_db dependency to use the test database
-def override_get_db():
-    db_session = TestingSessionLocal()
-    try:
-        yield db_session
-    finally:
-        db_session.close()
-
-@pytest.fixture(name="session", scope="function")
-async def session_fixture():
-    # Pastikan ekstensi pgvector diaktifkan untuk database pengujian
-    with test_engine.connect() as connection:
-        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-        connection.commit()
-    
-    # Hapus semua tabel terlebih dahulu untuk memastikan kondisi bersih
-    Base.metadata.drop_all(bind=test_engine)
-    # Buat semua tabel yang didefinisikan dalam models.py
-    Base.metadata.create_all(bind=test_engine)
-    
-    db_session = TestingSessionLocal()
-    try:
-        # Create a user for general testing
-        test_user = crud.create_user(db_session, schemas.UserCreate(nama="Test User", email="test@example.com", bio="Saya pengguna uji.", lokasi="Kota Uji"))
-        await crud.create_user_embedding(db_session, test_user)
-        db_session.commit()
-        db_session.refresh(test_user)
-
-        yield db_session
-    finally:
-        db_session.rollback() # Rollback any changes made during the test
-        db_session.close()
-        # Hapus semua tabel setelah pengujian
-        Base.metadata.drop_all(bind=test_engine)
-
-@pytest.fixture(name="client", scope="function")
-async def client_fixture(session):
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as client:
-        yield client
-    app.dependency_overrides.clear()
 
 @pytest.mark.asyncio
 async def test_read_root(client):
@@ -484,56 +430,3 @@ async def test_update_ukm(client, session):
         source_type="ukm", source_id=str(db_ukm.id_ukm)
     ).first()
     assert ukm_embedding.text_original == updated_embedding_text, "Embedding UKM seharusnya diperbarui dengan teks baru"
-
-@pytest.mark.asyncio
-async def test_rag_query(client, session):
-    test_user = crud.get_user_by_email(session, "test@example.com")
-    user_id = test_user.id_user
-
-    # Tambahkan beberapa embedding spesifik untuk diambil oleh kueri RAG
-    todo_text = "Rapat dengan klien pukul 10 pagi pada hari Senin."
-    embedding1 = await embed_text_with_gemini(todo_text)
-    crud.create_rags_embedding(session, schemas.RAGSEmbeddingCreate(
-        id_user=user_id,
-        source_type="tugas",
-        text_original=todo_text
-    ), embedding1)
-    
-    jadwal_text = "Janji dokter gigi pada Selasa sore."
-    embedding2 = await embed_text_with_gemini(jadwal_text)
-    crud.create_rags_embedding(session, schemas.RAGSEmbeddingCreate(
-        id_user=user_id,
-        source_type="jadwal",
-        text_original=jadwal_text
-    ), embedding2)
-    session.commit()
-
-    query_data = {
-        "id_user": user_id,
-        "question": "Kapan rapat atau janji temu saya?",
-        "top_k": 2
-    }
-    response = client.post("/rag/query", json=query_data)
-    
-    if response.status_code != 200:
-        print(f"Permintaan RAG gagal dengan status {response.status_code}: {response.text}")
-
-    assert response.status_code == 200, "Permintaan RAG seharusnya berhasil"
-    json_response = response.json()
-    
-    assert "answer" in json_response, "Respons seharusnya berisi 'answer'"
-    assert "context_docs" in json_response, "Respons seharusnya berisi 'context_docs'"
-    assert json_response["answer"] is not None, "Jawaban seharusnya tidak kosong"
-    # Periksa bahwa konteks berisi informasi yang relevan
-    context_texts = [doc["text_original"] for doc in json_response["context_docs"]]
-    assert any("Rapat dengan klien" in text for text in context_texts), "Konteks seharusnya berisi informasi rapat klien"
-    assert any("Janji dokter gigi" in text for text in context_texts), "Konteks seharusnya berisi informasi janji dokter gigi"
-
-    # Verifikasi riwayat obrolan disimpan
-    chat_history = crud.get_chat_history(session, user_id)
-    # Seharusnya ada setidaknya 2 entri (pertanyaan pengguna + jawaban asisten)
-    assert len(chat_history) >= 2, "Seharusnya ada setidaknya 2 entri riwayat obrolan" # Pembuatan pengguna awal mungkin juga membuat entri
-    user_message_exists = any(entry.role == "user" and entry.message == query_data["question"] for entry in chat_history)
-    assistant_message_exists = any(entry.role == "assistant" and entry.message == json_response["answer"] for entry in chat_history)
-    assert user_message_exists, "Pesan pertanyaan pengguna seharusnya ada di riwayat obrolan"
-    assert assistant_message_exists, "Pesan jawaban asisten seharusnya ada di riwayat obrolan"

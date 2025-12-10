@@ -8,3 +8,8 @@ python-dotenv
 httpx
 pytest
 pytest-asyncio
+authlib
+itsdangerous
+google-auth
+google-api-python-client
+python-dateutil
