@@ -31,6 +31,10 @@ def get_creds(user: models.User):
         client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
         scopes=['https://www.googleapis.com/auth/calendar']
     )
+    
+    if not user.refresh_token:
+        logger.warning(f"User {user.email} (ID: {user.id_user}) is missing a refresh_token. Calendar actions may fail after access_token expiry.")
+        
     return creds
 
 def get_service(user: models.User):

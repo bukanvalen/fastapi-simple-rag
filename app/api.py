@@ -4,7 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 import logging
 
-from . import models, schemas, crud, db, auth, calendar_service
+from . import models, schemas, crud, db, auth, calendar_service, rag_service
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -104,7 +104,7 @@ def read_jadwal(
     return crud.get_jadwal_matkul_by_user(db, current_user.id_user)
 
 @router.post("/jadwal", response_model=schemas.JadwalMatkul)
-def create_jadwal(
+async def create_jadwal(
     jadwal: schemas.JadwalMatkulCreate, 
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user)
@@ -123,10 +123,13 @@ def create_jadwal(
                 db_jadwal.google_event_id = event_id
                 db.commit()
 
+    # Create Embedding
+    await rag_service.update_jadwal_embedding(db, db_jadwal)
+
     return db_jadwal
 
 @router.put("/jadwal/{jadwal_id}", response_model=schemas.JadwalMatkul)
-def update_jadwal(
+async def update_jadwal(
     jadwal_id: int, 
     jadwal_update: schemas.JadwalMatkulUpdate, 
     db: Session = Depends(get_db),
@@ -145,6 +148,9 @@ def update_jadwal(
         db_semester = crud.get_semester(db, updated_jadwal.id_semester)
         if db_semester:
              calendar_service.update_recurring_event(db, current_user, db_semester, updated_jadwal)
+
+    # Update Embedding
+    await rag_service.update_jadwal_embedding(db, updated_jadwal)
 
     return updated_jadwal
 
@@ -167,6 +173,7 @@ def delete_jadwal(
              calendar_service.delete_event(db, current_user, db_jadwal.google_event_id, calendar_id=db_semester.google_calendar_id)
 
     crud.delete_jadwal_matkul(db, jadwal_id)
+    crud.delete_rags_embedding_by_source_type_and_id(db, "jadwal", str(jadwal_id))
     return {"message": "Jadwal deleted"}
 
 # --- TODOS ---
@@ -178,7 +185,7 @@ def read_todos(
     return crud.get_todos_by_user(db, current_user.id_user)
 
 @router.post("/todos", response_model=schemas.Todo)
-def create_todo(
+async def create_todo(
     todo: schemas.TodoCreate, 
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user)
@@ -195,10 +202,13 @@ def create_todo(
             db_todo.google_event_id = event_id
             db.commit()
             
+    # Create Embedding
+    await rag_service.update_todo_embedding(db, db_todo)
+
     return db_todo
 
 @router.put("/todos/{todo_id}", response_model=schemas.Todo)
-def update_todo(
+async def update_todo(
     todo_id: int, 
     todo_update: schemas.TodoUpdate, 
     db: Session = Depends(get_db),
@@ -216,6 +226,9 @@ def update_todo(
     if updated_todo:
          calendar_service.update_todo_event(db, current_user, updated_todo)
          db.commit() # Commit the potential google_event_id change if create happened inside update logic
+         
+         # Update Embedding
+         await rag_service.update_todo_embedding(db, updated_todo)
     
     return updated_todo
 
@@ -237,4 +250,5 @@ def delete_todo(
         calendar_service.delete_event(db, current_user, db_todo.google_event_id, calendar_id=cal_id)
 
     crud.delete_todo(db, todo_id)
+    crud.delete_rags_embedding_by_source_type_and_id(db, "todo", str(todo_id))
     return {"message": "Todo deleted"}

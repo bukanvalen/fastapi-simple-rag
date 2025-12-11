@@ -299,7 +299,7 @@ async def test_update_user(client, session):
     assert db_user.email == user_to_update.email, "Email pengguna seharusnya tidak berubah"
 
     # Verifikasi embedding pengguna diperbarui
-    updated_embedding_text = f"Nama: {updated_name}. Email: {db_user.email}. Telepon: {db_user.telepon or ''}. Bio: {updated_bio}. Lokasi: {db_user.lokasi or ''}."
+    updated_embedding_text = f"Nama: {updated_name}. Email: {db_user.email}. Telepon: {db_user.telepon or ''}. Bio: {updated_bio}. Lokasi: {db_user.lokasi or ''}. Calendar Name: {db_user.calendar_name or ''}."
     user_embedding = session.query(models.RAGSEmbedding).filter_by(
         source_type="user", source_id=str(db_user.id_user)
     ).first()

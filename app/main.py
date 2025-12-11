@@ -11,7 +11,7 @@ from datetime import datetime, time, date
 import logging
 import traceback
 
-from . import models, schemas, crud, db, rag, auth, calendar_service, api
+from . import models, schemas, crud, db, rag, auth, calendar_service, api, rag_service
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
@@ -88,7 +88,12 @@ async def read_root(request: Request, db_session: Session = Depends(get_db)):
 @app.get("/login")
 async def login(request: Request):
     redirect_uri = request.url_for('auth_callback')
-    return await auth.oauth.google.authorize_redirect(request, redirect_uri)
+    return await auth.oauth.google.authorize_redirect(
+        request, 
+        redirect_uri, 
+        access_type='offline', 
+        prompt='consent'
+    )
 
 @app.get("/auth", name="auth_callback")
 async def auth_callback(request: Request, db_session: Session = Depends(get_db)):
@@ -182,23 +187,8 @@ async def onboarding_submit(
     )
     crud.update_user(db_session, user.id_user, user_update)
     
-    # Regnerate embedding
-    # ... logic similar to update_user ...
-    # We can reuse the update_user_route logic or extract it.
-    # For now, let's just do it here quickly:
-    
-    user_data_text = f"Nama: {user.nama}. Email: {user.email}. Telepon: {user.telepon or ''}. Bio: {user.bio or ''}. Lokasi: {user.lokasi or ''}."
-    embedding_list = await rag.embed_text_with_gemini(user_data_text)
-    
-    existing_embedding = db_session.query(models.RAGSEmbedding).filter_by(
-        source_type="user", source_id=str(user.id_user)
-    ).first()
-
-    if existing_embedding:
-        existing_embedding.text_original = user_data_text
-        existing_embedding.embedding = embedding_list
-        db_session.add(existing_embedding)
-        db_session.commit()
+    # Regnerate embedding using service
+    await rag_service.update_user_embedding(db_session, user)
     
     return RedirectResponse(url="/", status_code=303)
 
@@ -223,7 +213,7 @@ async def add_user(
             lokasi=lokasi
         )
         db_user = crud.create_user(db_session, user_create)
-        await crud.create_user_embedding(db_session, db_user) # Create embedding for the new user
+        await rag_service.update_user_embedding(db_session, db_user) # Create embedding for the new user using service
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
         logger.error(f"Error in endpoint: {e}")
@@ -266,27 +256,7 @@ async def update_user_route(
 
         if db_user:
             # Re-generate and update user embedding if user data was changed
-            user_data_text = f"Nama: {db_user.nama}. Email: {db_user.email}. Telepon: {db_user.telepon or ''}. Bio: {db_user.bio or ''}. Lokasi: {db_user.lokasi or ''}. Calendar Name: {db_user.calendar_name or ''}."
-            embedding_list = await rag.embed_text_with_gemini(user_data_text)
-            
-            # Find and update the existing user embedding
-            existing_embedding = db_session.query(models.RAGSEmbedding).filter_by(
-                source_type="user", source_id=str(db_user.id_user)
-            ).first()
-
-            if existing_embedding:
-                existing_embedding.text_original = user_data_text
-                existing_embedding.embedding = embedding_list
-                db_session.add(existing_embedding)
-                db_session.commit()
-            else:
-                # If for some reason the embedding doesn't exist, create it
-                crud.create_rags_embedding(db_session, schemas.RAGSEmbeddingCreate(
-                    id_user=db_user.id_user,
-                    source_type="user",
-                    source_id=str(db_user.id_user),
-                    text_original=user_data_text
-                ), embedding_list)
+            await rag_service.update_user_embedding(db_session, db_user)
 
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
@@ -435,16 +405,7 @@ async def add_todo(
                  db_todo.google_event_id = event_id
                  db_session.commit()
         
-        todo_text = f"Todo: {db_todo.nama}. Type: {db_todo.tipe}. Due: {db_todo.tenggat}. Description: {db_todo.deskripsi or ''}."
-        embedding_list = await rag.embed_text_with_gemini(todo_text)
-        
-        embedding_create = schemas.RAGSEmbeddingCreate(
-            id_user=id_user,
-            source_type="todo",
-            source_id=str(db_todo.id_todo),
-            text_original=todo_text
-        )
-        crud.create_rags_embedding(db_session, embedding_create, embedding_list)
+        await rag_service.update_todo_embedding(db_session, db_todo)
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
         logger.error(f"Error in endpoint: {e}")
@@ -494,26 +455,8 @@ async def update_todo_route(
         db_todo = crud.update_todo(db_session, todo_id, todo_update_data)
 
         if db_todo:
-            # Re-generate and update embedding
-            todo_text = f"Todo: {db_todo.nama}. Type: {db_todo.tipe}. Due: {db_todo.tenggat}. Description: {db_todo.deskripsi or ''}."
-            embedding_list = await rag.embed_text_with_gemini(todo_text)
-            
-            existing_embedding = db_session.query(models.RAGSEmbedding).filter_by(
-                source_type="todo", source_id=str(db_todo.id_todo)
-            ).first()
-
-            if existing_embedding:
-                existing_embedding.text_original = todo_text
-                existing_embedding.embedding = embedding_list
-                db_session.add(existing_embedding)
-                db_session.commit()
-            else:
-                crud.create_rags_embedding(db_session, schemas.RAGSEmbeddingCreate(
-                    id_user=db_todo.id_user,
-                    source_type="todo",
-                    source_id=str(db_todo.id_todo),
-                    text_original=todo_text
-                ), embedding_list)
+            # Re-generate and update embedding using service
+            await rag_service.update_todo_embedding(db_session, db_todo)
 
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
@@ -558,16 +501,7 @@ async def add_jadwal(
                      db_jadwal.google_event_id = event_id
                      db_session.commit()
         
-        jadwal_text = f"Jadwal Mata Kuliah: {db_jadwal.nama}. Hari: {db_jadwal.hari}. Mulai: {db_jadwal.jam_mulai}. Selesai: {db_jadwal.jam_selesai}. SKS: {db_jadwal.sks}."
-        embedding_list = await rag.embed_text_with_gemini(jadwal_text)
-        
-        embedding_create = schemas.RAGSEmbeddingCreate(
-            id_user=id_user,
-            source_type="jadwal",
-            source_id=str(db_jadwal.id_jadwal),
-            text_original=jadwal_text
-        )
-        crud.create_rags_embedding(db_session, embedding_create, embedding_list)
+        await rag_service.update_jadwal_embedding(db_session, db_jadwal)
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
         logger.error(f"Error in endpoint: {e}")
@@ -615,25 +549,8 @@ async def update_jadwal_route(
         db_jadwal = crud.update_jadwal_matkul(db_session, jadwal_id, jadwal_update_data)
 
         if db_jadwal:
-            # Re-generate and update embedding
-            jadwal_text = f"Jadwal Mata Kuliah: {db_jadwal.nama}. Hari: {db_jadwal.hari}. Mulai: {db_jadwal.jam_mulai}. Selesai: {db_jadwal.jam_selesai}. SKS: {db_jadwal.sks}."
-            embedding_list = await rag.embed_text_with_gemini(jadwal_text)
-            
-            existing_embedding = db_session.query(models.RAGSEmbedding).filter_by(
-                source_type="jadwal", source_id=str(db_jadwal.id_jadwal)
-            ).first()
-
-            if existing_embedding:
-                existing_embedding.text_original = jadwal_text
-                existing_embedding.embedding = embedding_list
-                db_session.add(existing_embedding)
-            else:
-                crud.create_rags_embedding(db_session, schemas.RAGSEmbeddingCreate(
-                    id_user=db_jadwal.id_user,
-                    source_type="jadwal",
-                    source_id=str(db_jadwal.id_jadwal),
-                    text_original=jadwal_text
-                ), embedding_list)
+            # Re-generate and update embedding using service
+            await rag_service.update_jadwal_embedding(db_session, db_jadwal)
             
             # Calendar Sync Update (Phase 2.5)
             if db_jadwal.id_semester and db_jadwal.google_event_id:
@@ -641,16 +558,6 @@ async def update_jadwal_route(
                  db_user = crud.get_user(db_session, db_jadwal.id_user)
                  if db_semester and db_user:
                      calendar_service.update_recurring_event(db_session, db_user, db_semester, db_jadwal)
-                     
-             
-            # Calendar Sync Update (Phase 2.5)
-            if db_jadwal.id_semester and db_jadwal.google_event_id:
-                 db_semester = crud.get_semester(db_session, db_jadwal.id_semester)
-                 db_user = crud.get_user(db_session, db_jadwal.id_user)
-                 if db_semester and db_user:
-                     calendar_service.update_recurring_event(db_session, db_user, db_semester, db_jadwal)
-                     
-            db_session.commit() # Commit all changes including embedding and potential calendar sync side effects
 
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
@@ -675,16 +582,7 @@ async def add_ukm(
         )
         db_ukm = crud.create_ukm(db_session, ukm_create)
         
-        ukm_text = f"UKM: {db_ukm.nama}. Jabatan: {db_ukm.jabatan}. Description: {db_ukm.deskripsi or ''}."
-        embedding_list = await rag.embed_text_with_gemini(ukm_text)
-        
-        embedding_create = schemas.RAGSEmbeddingCreate(
-            id_user=id_user,
-            source_type="ukm",
-            source_id=str(db_ukm.id_ukm),
-            text_original=ukm_text
-        )
-        crud.create_rags_embedding(db_session, embedding_create, embedding_list)
+        await rag_service.update_ukm_embedding(db_session, db_ukm)
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
         logger.error(f"Error in endpoint: {e}")
@@ -716,26 +614,8 @@ async def update_ukm_route(
         db_ukm = crud.update_ukm(db_session, ukm_id, ukm_update_data)
 
         if db_ukm:
-            # Re-generate and update embedding
-            ukm_text = f"UKM: {db_ukm.nama}. Jabatan: {db_ukm.jabatan}. Description: {db_ukm.deskripsi or ''}."
-            embedding_list = await rag.embed_text_with_gemini(ukm_text)
-            
-            existing_embedding = db_session.query(models.RAGSEmbedding).filter_by(
-                source_type="ukm", source_id=str(db_ukm.id_ukm)
-            ).first()
-
-            if existing_embedding:
-                existing_embedding.text_original = ukm_text
-                existing_embedding.embedding = embedding_list
-                db_session.add(existing_embedding)
-                db_session.commit()
-            else:
-                crud.create_rags_embedding(db_session, schemas.RAGSEmbeddingCreate(
-                    id_user=db_ukm.id_user,
-                    source_type="ukm",
-                    source_id=str(db_ukm.id_ukm),
-                    text_original=ukm_text
-                ), embedding_list)
+            # Re-generate and update embedding using service
+            await rag_service.update_ukm_embedding(db_session, db_ukm)
 
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:

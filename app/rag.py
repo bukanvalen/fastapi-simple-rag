@@ -95,23 +95,43 @@ def retrieve_similar_rags(db: Session, query_vector: List[float], top_k: int, id
 def augment_prompt(question: str, context_docs: List[models.RAGSEmbedding], client_local_time: Optional[datetime] = None) -> str:
     """Constructs an augmented prompt with retrieved context and optional client local time."""
     context_str = "\n\n".join([
-        f"{doc.source_type}#{doc.source_id or doc.id_embedding}: {doc.text_original}"
+        f"Source: {doc.source_type} (ID: {doc.source_id or doc.id_embedding})\nContent: {doc.text_original}"
         for doc in context_docs
     ])
 
     time_context = ""
     if client_local_time:
-        # Format the client_local_time for natural language in the prompt
-        formatted_time = client_local_time.strftime("%A, %d %B %Y %H:%M:%S")
-        time_context = f"Given that the current local date and time is {formatted_time} (from the user's local system), " \
-                       "please consider this time information especially for time-sensitive queries. "
+        formatted_time = client_local_time.strftime("%A, %d %B %Y, %H:%M:%S")
+        time_context = f"For your information, the user's current local date and time is {formatted_time}. Please use this for any time-sensitive queries about schedules or deadlines."
+
+    system_instruction = (
+        "You are a smart, helpful personal assistant. "
+        "You have DIRECT ACCESS to the user's personal database, which includes:\n"
+        "1. Complete Profile (Name, Email, Bio)\n"
+        "2. To-Do List (Tasks, Deadlines)\n"
+        "3. Class Schedule/Jadwal Matkul (Day, Time, SKS)\n"
+        "4. UKM Activities (Organization Name, Role)\n\n"
+        "IMPORTANT: You MUST answer based on the provided context below. "
+        "Do NOT say 'I cannot access your calendar' or 'I don't have access to your data'. "
+        "You HAVE the data in the context. "
+        "If the specific answer is not in the context, state 'Based on your saved data, I couldn't find that specific information.' "
+        "Always be concise and actionable."
+    )
+
+    if not context_docs:
+        context_str = "No relevant information found in the user's database to answer this question."
 
     return (
-        "Use the following context to answer the question.\n\n"
-        f"{time_context}"
-        f"Context:\n{context_str}\n\n"
-        f"Question: {question}\n\n"
-        "Answer concisely and with actionable steps."
+        f"{system_instruction}\n\n"
+        "------------------\n\n"
+        f"{time_context}\n\n"
+        "CONTEXT FROM DATABASE:\n"
+        "------------------\n"
+        f"{context_str}\n\n"
+        "------------------\n\n"
+        f"QUESTION: {question}\n\n"
+        "------------------\n\n"
+        "Based on the context, provide a concise and actionable answer in Bahasa Indonesia."
     )
 
 async def generate_answer_with_gemini(augmented_prompt: str) -> str:

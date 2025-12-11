@@ -63,6 +63,7 @@ email
 telepon
 bio
 lokasi
+calendar_name
 ```
 
 ### **rags_embeddings**
